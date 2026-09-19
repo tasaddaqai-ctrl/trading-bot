@@ -4,3 +4,4 @@ requests
 plotly
 ta
 textblob
+streamlit-autorefresh
