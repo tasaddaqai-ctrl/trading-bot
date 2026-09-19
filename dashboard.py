@@ -12,15 +12,40 @@ st.set_page_config(page_title="Pro Quant AI", layout="wide", initial_sidebar_sta
 st.title("🚀 Institutional Quant Trading Dashboard")
 st.markdown("Yeh dashboard real-time data fetch karta hai aur Institutional concepts par Buy/Sell signals deta hai.")
 
+# --- FETCH ALL COINS DYNAMICALLY ---
+@st.cache_data(ttl=86400) # Ek dafa fetch kar ke din bhar save rakhega taake load na pare
+def get_all_usdt_symbols():
+    urls = [
+        "https://api.binance.us/api/v3/exchangeInfo",
+        "https://api.binance.com/api/v3/exchangeInfo",
+        "https://api1.binance.com/api/v3/exchangeInfo"
+    ]
+    for url in urls:
+        try:
+            res = requests.get(url, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                # Sirf wo coins jo USDT mein trade ho rahe hain aur active hain
+                symbols = [s['symbol'] for s in data['symbols'] if s['symbol'].endswith('USDT') and s['status'] == 'TRADING']
+                return sorted(symbols)
+        except:
+            continue
+    # Fallback Top Coins (Agar sab APIs fail ho jayen)
+    return ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SHIBUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "MATICUSDT"]
+
 # --- SIDEBAR ---
 st.sidebar.header("⚙️ Engine Parameters")
-symbol = st.sidebar.selectbox("Select Asset", ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"])
+all_symbols = get_all_usdt_symbols()
+
+# Default selection BTCUSDT rakhne ke liye
+default_index = all_symbols.index("BTCUSDT") if "BTCUSDT" in all_symbols else 0
+
+symbol = st.sidebar.selectbox("Select Asset", all_symbols, index=default_index)
 timeframe = st.sidebar.selectbox("Primary Timeframe", ["15m", "1h", "4h", "1d"])
 
 # --- DATA FETCHING (Binance API with Fallbacks for Streamlit Cloud) ---
 @st.cache_data(ttl=60)
 def fetch_binance_data(sym, tf, limit=250):
-    # Streamlit Cloud servers are in the US, so we must try multiple API endpoints
     urls = [
         "https://api.binance.us/api/v3/klines",   # Priority 1: Works in US
         "https://api.binance.com/api/v3/klines",  # Priority 2: Global
@@ -41,7 +66,7 @@ def fetch_binance_data(sym, tf, limit=250):
                     return df
         except:
             continue
-    return None # Return None if all APIs fail
+    return None
 
 @st.cache_data(ttl=3600)
 def fetch_fear_greed():
@@ -59,23 +84,18 @@ with st.spinner("Fetching Live Market Data & Analyzing..."):
     df = fetch_binance_data(symbol, timeframe)
     fng_val, fng_class = fetch_fear_greed()
 
-# Error Handling for US Server Block
 if df is None or len(df) < 200:
     st.error("🚨 **Data Fetch Error:** Streamlit Cloud ke US servers ki wajah se Binance API ne filhal data block kar diya hai.")
     st.info("💡 **Hal (Solution):** Is dashboard ko apne PC par locally (`streamlit run dashboard.py`) chalayein. Wahan yeh 100% sahi chalegi kyunke wahan aapka local internet use hota hai jo Binance support karta hai.")
     st.stop()
 
 # --- DEEP TECHNICAL ANALYSIS ---
-# Volatility (ATR)
 atr = AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14)
 df['ATR'] = atr.average_true_range()
 
-# Trend (EMAs)
 df['EMA_21'] = EMAIndicator(close=df['close'], window=21).ema_indicator()
 df['EMA_50'] = EMAIndicator(close=df['close'], window=50).ema_indicator()
 df['EMA_200'] = EMAIndicator(close=df['close'], window=200).ema_indicator()
-
-# Momentum (RSI)
 df['RSI_14'] = RSIIndicator(close=df['close'], window=14).rsi()
 
 latest = df.iloc[-1]
@@ -136,4 +156,4 @@ fig.add_trace(go.Scatter(x=df['timestamp'], y=df['EMA_50'], line=dict(color='#FF
 fig.add_trace(go.Scatter(x=df['timestamp'], y=df['EMA_200'], line=dict(color='#FF0055', width=2), name='EMA 200 (Macro)'))
 fig.update_layout(xaxis_rangeslider_visible=False, template="plotly_dark", height=600, margin=dict(l=0, r=0, t=30, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
 st.plotly_chart(fig, use_container_width=True)
-st.caption("Developed for Professional Trading. Data sourced dynamically.")
+st.caption("Developed for Professional Trading. Data sourced dynamically from Binance.")
