@@ -41,7 +41,7 @@ all_symbols = get_all_usdt_symbols()
 default_index = all_symbols.index("BTCUSDT") if "BTCUSDT" in all_symbols else 0
 
 symbol = st.sidebar.selectbox("Select Asset", all_symbols, index=default_index)
-timeframe = st.sidebar.selectbox("Primary Timeframe", ["15m", "1h", "4h", "1d"])
+timeframe = st.sidebar.selectbox("Primary Timeframe", ["1m", "5m", "15m", "1h", "4h", "1d"], index=2)
 
 # --- DATA FETCHING (Binance API with Fallbacks for Streamlit Cloud) ---
 @st.cache_data(ttl=60)
