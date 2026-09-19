@@ -13,7 +13,7 @@ st.title("🚀 Institutional Quant Trading Dashboard")
 st.markdown("Yeh dashboard real-time data fetch karta hai aur Institutional concepts par Buy/Sell signals deta hai.")
 
 # --- FETCH ALL COINS DYNAMICALLY ---
-@st.cache_data(ttl=86400) # Ek dafa fetch kar ke din bhar save rakhega taake load na pare
+@st.cache_data(ttl=86400)
 def get_all_usdt_symbols():
     urls = [
         "https://api.binance.us/api/v3/exchangeInfo",
@@ -25,34 +25,50 @@ def get_all_usdt_symbols():
             res = requests.get(url, timeout=5)
             if res.status_code == 200:
                 data = res.json()
-                # Sirf wo coins jo USDT mein trade ho rahe hain aur active hain
                 symbols = [s['symbol'] for s in data['symbols'] if s['symbol'].endswith('USDT') and s['status'] == 'TRADING']
                 return sorted(symbols)
         except:
             continue
-    # Fallback Top Coins (Agar sab APIs fail ho jayen)
     return ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SHIBUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "MATICUSDT"]
 
 # --- SIDEBAR ---
 st.sidebar.header("⚙️ Engine Parameters")
 all_symbols = get_all_usdt_symbols()
-
-# Default selection BTCUSDT rakhne ke liye
 default_index = all_symbols.index("BTCUSDT") if "BTCUSDT" in all_symbols else 0
 
 symbol = st.sidebar.selectbox("Select Asset", all_symbols, index=default_index)
 timeframe = st.sidebar.selectbox("Primary Timeframe", ["1m", "5m", "15m", "1h", "4h", "1d"], index=2)
 
-# --- DATA FETCHING (Binance API with Fallbacks for Streamlit Cloud) ---
+# --- DATA FETCHING (Multi-Exchange Anti-Block System) ---
 @st.cache_data(ttl=60)
-def fetch_binance_data(sym, tf, limit=250):
+def fetch_market_data(sym, tf):
+    # Priority 1: KuCoin API (Yeh Cloud USA servers par bilkul block nahi hoti)
+    kucoin_tf_map = {"1m": "1min", "5m": "5min", "15m": "15min", "1h": "1hour", "4h": "4hour", "1d": "1day"}
+    kucoin_sym = sym.replace("USDT", "-USDT")
+    url_kucoin = "https://api.kucoin.com/api/v1/market/candles"
+    try:
+        res = requests.get(url_kucoin, params={"symbol": kucoin_sym, "type": kucoin_tf_map.get(tf, "15min")}, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if data.get('code') == '200000' and data.get('data'):
+                # KuCoin columns: timestamp, open, close, high, low, volume, turnover
+                df = pd.DataFrame(data['data'], columns=['timestamp', 'open', 'close', 'high', 'low', 'volume', 'turnover'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'].astype(float), unit='s')
+                for col in ['open', 'high', 'low', 'close', 'volume']:
+                    df[col] = df[col].astype(float)
+                # Sort from oldest to newest
+                df = df.sort_values('timestamp').reset_index(drop=True)
+                return df
+    except:
+        pass
+        
+    # Priority 2: Binance APIs (Backup)
     urls = [
-        "https://api.binance.us/api/v3/klines",   # Priority 1: Works in US
-        "https://api.binance.com/api/v3/klines",  # Priority 2: Global
-        "https://api1.binance.com/api/v3/klines"  # Priority 3: Backup
+        "https://api.binance.us/api/v3/klines",
+        "https://api.binance.com/api/v3/klines",
+        "https://api1.binance.com/api/v3/klines"
     ]
-    params = {"symbol": sym, "interval": tf, "limit": limit}
-    
+    params = {"symbol": sym, "interval": tf, "limit": 250}
     for url in urls:
         try:
             res = requests.get(url, params=params, timeout=5)
@@ -81,12 +97,11 @@ def fetch_fear_greed():
 
 # Fetch Data
 with st.spinner("Fetching Live Market Data & Analyzing..."):
-    df = fetch_binance_data(symbol, timeframe)
+    df = fetch_market_data(symbol, timeframe)
     fng_val, fng_class = fetch_fear_greed()
 
-if df is None or len(df) < 200:
-    st.error("🚨 **Data Fetch Error:** Streamlit Cloud ke US servers ki wajah se Binance API ne filhal data block kar diya hai.")
-    st.info("💡 **Hal (Solution):** Is dashboard ko apne PC par locally (`streamlit run dashboard.py`) chalayein. Wahan yeh 100% sahi chalegi kyunke wahan aapka local internet use hota hai jo Binance support karta hai.")
+if df is None or len(df) < 50:
+    st.error("🚨 **Data Fetch Error:** Streamlit Cloud ke servers API se data nahi nikal pa rahe.")
     st.stop()
 
 # --- DEEP TECHNICAL ANALYSIS ---
@@ -156,4 +171,4 @@ fig.add_trace(go.Scatter(x=df['timestamp'], y=df['EMA_50'], line=dict(color='#FF
 fig.add_trace(go.Scatter(x=df['timestamp'], y=df['EMA_200'], line=dict(color='#FF0055', width=2), name='EMA 200 (Macro)'))
 fig.update_layout(xaxis_rangeslider_visible=False, template="plotly_dark", height=600, margin=dict(l=0, r=0, t=30, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
 st.plotly_chart(fig, use_container_width=True)
-st.caption("Developed for Professional Trading. Data sourced dynamically from Binance.")
+st.caption("Developed for Professional Trading. Multi-Exchange Data Sources Active.")
